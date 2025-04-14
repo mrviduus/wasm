@@ -36,56 +36,56 @@ ARG dotnet_repo=24.04
 ARG dotnet_version=8.0
 ARG node_major=20
 ARG wasm_tools=1.216.0
+
 # Copy WABT tools
-COPY --from=wabt /app/wabt/build/wat2wasm \
-    /app/wabt/build/wasm2wat \
-    /app/wabt/build/wasm-objdump \
-    /app/wabt/build/wasm-decompile \
-    /app/wabt/build/wat-desugar \
-    /app/wabt/build/wasm2c \
-    /app/wabt/build/wasm-strip \
-    /app/wabt/build/wasm-validate \
-    /app/wabt/build/wast2json \
-    /app/wabt/build/wasm-stats \
-    /app/wabt/build/spectest-interp \
-    /opt/wabt/bin/
+COPY --from=wabt /app/wabt/build/* /opt/wabt/bin/
 RUN echo 'export PATH=$PATH:/opt/wabt/bin' >> ~/.bashrc
+
+# Install wasmtime and wasmer
 RUN curl https://wasmtime.dev/install.sh -sSf | bash
 RUN curl https://get.wasmer.io -sSfL | bash
+
+# Install Rust and wasm targets
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 ENV PATH=$PATH:/root/.cargo/bin
-RUN rustup target add wasm32-wasip1 \
-    && rustup target add wasm32-unknown-unknown \
-    && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-RUN cargo install --locked cargo-component
-RUN cargo install wac-cli
-RUN cargo install --git https://github.com/bytecodealliance/wit-bindgen wit-bindgen-cli
-RUN cargo install cargo-wasix
-# RUN curl -fsSL https://developer.fermyon.com/downloads/install.sh | bash \
-#     && mkdir /opt/spin \
-#     && mv spin /opt/spin/ \
-#     && echo 'export PATH=$PATH:/opt/spin' >> ~/.bashrc
+RUN rustup target add wasm32-wasip1 wasm32-unknown-unknown
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Install cargo tools
+RUN cargo install --locked cargo-component \
+    && cargo install wac-cli \
+    && cargo install --git https://github.com/bytecodealliance/wit-bindgen wit-bindgen-cli \
+    && cargo install cargo-wasix
+
+# Install wasi-sdk for ARM64 (corrected URL)
 RUN cd /opt \
-    && wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$wasi_sdk/wasi-sdk-$wasi_sdk.0-x86_64-linux.tar.gz \
-    && tar xvf wasi-sdk-$wasi_sdk.0-x86_64-linux.tar.gz \
-    && rm wasi-sdk-$wasi_sdk.0-x86_64-linux.tar.gz \
-    && echo 'export PATH=$PATH:/opt/wasi-sdk-$wasi_sdk.0' >> ~/.bashrc
+    && wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-$wasi_sdk/wasi-sdk-$wasi_sdk.0-arm64-linux.tar.gz \
+    && tar xvf wasi-sdk-$wasi_sdk.0-arm64-linux.tar.gz \
+    && rm wasi-sdk-$wasi_sdk.0-arm64-linux.tar.gz \
+    && echo 'export PATH=$PATH:/opt/wasi-sdk-$wasi_sdk.0/bin' >> ~/.bashrc
+
+# Install wasm-tools for ARM64
 RUN cd /opt \
-    && wget https://github.com/bytecodealliance/wasm-tools/releases/download/v$wasm_tools/wasm-tools-$wasm_tools-x86_64-linux.tar.gz \
-    && tar xvf wasm-tools-$wasm_tools-x86_64-linux.tar.gz \
-    && rm wasm-tools-$wasm_tools-x86_64-linux.tar.gz \
-    && mv ./wasm-tools-$wasm_tools-x86_64-linux/ ./wasm-tools/ \
+    && wget https://github.com/bytecodealliance/wasm-tools/releases/download/v$wasm_tools/wasm-tools-$wasm_tools-aarch64-linux.tar.gz \
+    && tar xvf wasm-tools-$wasm_tools-aarch64-linux.tar.gz \
+    && rm wasm-tools-$wasm_tools-aarch64-linux.tar.gz \
+    && mv ./wasm-tools-$wasm_tools-aarch64-linux ./wasm-tools \
     && echo 'export PATH=$PATH:/opt/wasm-tools' >> ~/.bashrc
+
+# Install .NET SDK for ARM64
 RUN wget https://packages.microsoft.com/config/ubuntu/$dotnet_repo/packages-microsoft-prod.deb -O packages-microsoft-prod.deb \
     && dpkg -i packages-microsoft-prod.deb \
     && rm packages-microsoft-prod.deb \
     && apt update \
     && apt install dotnet-sdk-$dotnet_version -y \
-    && dotnet workload install wasm-tools \
-    && dotnet workload install wasm-experimental \
+    && dotnet workload install wasm-tools wasm-experimental \
     && apt install libxml2
+
+# Install just
 RUN curl -sSf https://just.systems/install.sh | bash -s -- --to /opt/just \
     && echo 'export PATH=$PATH:/opt/just' >> ~/.bashrc
+
+# Install Node.js for ARM64
 RUN apt remove nodejs npm -y \
     && apt update \
     && mkdir -p /etc/apt/keyrings \
@@ -93,9 +93,10 @@ RUN apt remove nodejs npm -y \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$node_major.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
     && apt update \
     && apt install nodejs -y \
-    && npm install --global http-server
-RUN npm install --global @bytecodealliance/jco @bytecodealliance/componentize-js
+    && npm install --global http-server \
+    && npm install --global @bytecodealliance/jco @bytecodealliance/componentize-js
 
+# Install Emscripten SDK
 WORKDIR /root
 RUN git clone https://github.com/emscripten-core/emsdk.git \
     && cd emsdk \
@@ -104,4 +105,9 @@ RUN git clone https://github.com/emscripten-core/emsdk.git \
     && echo 'export PATH=$PATH:/root/emsdk:/root/emsdk/upstream/emscripten' >> ~/.bashrc \
     && echo 'export EMSDK=/root/emsdk' >> ~/.bashrc \
     && echo 'export EMSDK_NODE=/root/emsdk/node/16.20.0_64bit/bin/node' >> ~/.bashrc
-ENV CCWASM=/opt/wasi-sdk-$wasi_sdk.0/bin/clang --sysroot=/opt/wasi-sdk-$wasi_sdk.0/share/wasi-sysroot
+
+ENV CCWASM="/opt/wasi-sdk-$wasi_sdk.0-arm64-linux/bin/clang --sysroot=/opt/wasi-sdk-$wasi_sdk.0-arm64-linux/share/wasi-sysroot"
+WORKDIR /root
+
+#docker build -t wasm-dev-image .
+#docker run -it wasm-dev-image bash
